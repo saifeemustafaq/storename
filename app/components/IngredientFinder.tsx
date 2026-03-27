@@ -1,47 +1,41 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useTransition } from "react";
-import type { Ingredient } from "../lib/csv";
-import { updateCsvPath, addIngredients, editIngredient, removeIngredient } from "../actions";
+import type { Ingredient } from "../actions";
+import {
+  addIngredients,
+  editIngredient,
+  removeIngredient,
+  toggleCartItem,
+  clearCart,
+} from "../actions";
 
 type ViewMode = "list" | "table";
 
 interface Props {
   ingredients: Ingredient[];
   stores: string[];
-  currentPath: string;
+  initialCart: number[];
   loadError: string;
 }
 
 export default function IngredientFinder({
   ingredients: initialIngredients,
   stores: initialStores,
-  currentPath,
+  initialCart,
   loadError,
 }: Props) {
   const [ingredients, setIngredients] = useState(initialIngredients);
   const [stores, setStores] = useState(initialStores);
   const [query, setQuery] = useState("");
   const [activeStores, setActiveStores] = useState<Set<string>>(new Set());
-  const [cart, setCart] = useState<Set<number>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const saved = localStorage.getItem("ingredient-cart");
-      return saved ? new Set(JSON.parse(saved) as number[]) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
+  const [cart, setCart] = useState<Set<number>>(() => new Set(initialCart));
   const [viewingCart, setViewingCart] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
-  const [showFileChooser, setShowFileChooser] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<Ingredient | null>(null);
-  const [filePath, setFilePath] = useState(currentPath);
-  const [fileError, setFileError] = useState(loadError);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setIngredients(initialIngredients);
@@ -49,10 +43,8 @@ export default function IngredientFinder({
   }, [initialIngredients, initialStores]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("ingredient-cart", JSON.stringify([...cart]));
-    } catch { /* storage full or unavailable */ }
-  }, [cart]);
+    setCart(new Set(initialCart));
+  }, [initialCart]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -60,7 +52,10 @@ export default function IngredientFinder({
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "/" && document.activeElement !== inputRef.current && document.activeElement !== fileInputRef.current) {
+      if (
+        e.key === "/" &&
+        document.activeElement !== inputRef.current
+      ) {
         e.preventDefault();
         inputRef.current?.focus();
       }
@@ -90,11 +85,17 @@ export default function IngredientFinder({
       else next.add(id);
       return next;
     });
+    startTransition(async () => {
+      await toggleCartItem(id);
+    });
   };
 
-  const clearCart = () => {
+  const handleClearCart = () => {
     setCart(new Set());
     if (viewingCart) setViewingCart(false);
+    startTransition(async () => {
+      await clearCart();
+    });
   };
 
   const clearAll = () => {
@@ -149,7 +150,9 @@ export default function IngredientFinder({
 
   const hasActiveFilters = query.length > 0 || activeStores.size > 0;
 
-  const handlePublishRows = (rows: { originalName: string; name: string; store: string }[]) => {
+  const handlePublishRows = (
+    rows: { originalName: string; name: string; store: string }[]
+  ) => {
     startTransition(async () => {
       const result = await addIngredients(rows);
       if (result.success && result.ingredients && result.stores) {
@@ -160,7 +163,10 @@ export default function IngredientFinder({
     });
   };
 
-  const handleEditSave = (id: number, data: { originalName: string; name: string; store: string }) => {
+  const handleEditSave = (
+    id: number,
+    data: { originalName: string; name: string; store: string }
+  ) => {
     startTransition(async () => {
       const result = await editIngredient(id, data);
       if (result.success && result.ingredients && result.stores) {
@@ -187,94 +193,39 @@ export default function IngredientFinder({
     });
   };
 
-  const handleFileLoad = () => {
-    startTransition(async () => {
-      setFileError("");
-      const result = await updateCsvPath(filePath);
-      if (result.success && result.ingredients && result.stores) {
-        setIngredients(result.ingredients);
-        setStores(result.stores);
-        setCart(new Set());
-        setViewingCart(false);
-        setQuery("");
-        setActiveStores(new Set());
-        setShowFileChooser(false);
-        setFileError("");
-      } else {
-        setFileError(result.error || "Unknown error");
-      }
-    });
-  };
-
   return (
     <div className="flex flex-col flex-1">
       {/* Header */}
       <header className="border-b border-black/10 px-4 sm:px-6 py-4">
         <div className="max-w-5xl mx-auto w-full flex items-center justify-between">
           <h1 className="text-lg font-semibold tracking-tight">Ingredients</h1>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-black text-white rounded-md hover:bg-black/80 transition-colors cursor-pointer"
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-black text-white rounded-md hover:bg-black/80 transition-colors cursor-pointer"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Items
-            </button>
-            <button
-              onClick={() => setShowFileChooser((p) => !p)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-black/15 rounded-md hover:border-black/40 transition-colors cursor-pointer text-black/60 hover:text-black"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              Change file
-            </button>
-          </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+            Add Items
+          </button>
         </div>
       </header>
 
-      {/* File chooser panel */}
-      {showFileChooser && (
+      {/* Load error */}
+      {loadError && (
         <div className="border-b border-black/10 bg-black/[0.02] px-4 sm:px-6 py-4">
           <div className="max-w-5xl mx-auto w-full">
-            <label className="block text-xs text-black/50 mb-2 font-medium uppercase tracking-wider">
-              CSV File Path
-            </label>
-            <div className="flex gap-2">
-              <input
-                ref={fileInputRef}
-                type="text"
-                value={filePath}
-                onChange={(e) => setFilePath(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleFileLoad()}
-                placeholder="/path/to/your/file.csv"
-                className="flex-1 px-3 py-2 text-sm border border-black/15 rounded-md bg-white text-black placeholder:text-black/30 focus:outline-none focus:border-black/40 transition-colors font-mono"
-              />
-              <button
-                onClick={handleFileLoad}
-                disabled={isPending}
-                className="px-4 py-2 text-sm bg-black text-white rounded-md hover:bg-black/80 transition-colors cursor-pointer disabled:opacity-40"
-              >
-                {isPending ? "Loading..." : "Load"}
-              </button>
-              <button
-                onClick={() => {
-                  setShowFileChooser(false);
-                  setFileError("");
-                }}
-                className="px-3 py-2 text-sm border border-black/15 rounded-md hover:border-black/40 transition-colors cursor-pointer text-black/50"
-              >
-                Cancel
-              </button>
-            </div>
-            {fileError && (
-              <p className="mt-2 text-sm text-black/60">{fileError}</p>
-            )}
-            <p className="mt-2 text-[11px] text-black/30">
-              Enter the full absolute path to a CSV file. The app will remember your choice.
-            </p>
+            <p className="text-sm text-black/60">{loadError}</p>
           </div>
         </div>
       )}
@@ -292,14 +243,28 @@ export default function IngredientFinder({
                   : "bg-white text-black/70 border-black/15 hover:border-black/40"
               }`}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
               </svg>
               My List
               {cart.size > 0 && (
-                <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-medium rounded-full ${
-                  viewingCart ? "bg-white text-black" : "bg-black text-white"
-                }`}>
+                <span
+                  className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-medium rounded-full ${
+                    viewingCart
+                      ? "bg-white text-black"
+                      : "bg-black text-white"
+                  }`}
+                >
                   {cart.size}
                 </span>
               )}
@@ -316,7 +281,7 @@ export default function IngredientFinder({
             </button>
             {cart.size > 0 && (
               <button
-                onClick={clearCart}
+                onClick={handleClearCart}
                 className="text-xs text-black/40 hover:text-black transition-colors cursor-pointer ml-auto"
               >
                 Clear list
@@ -344,7 +309,11 @@ export default function IngredientFinder({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={viewingCart ? "Search your list..." : 'Search ingredients...  press "/" to focus'}
+              placeholder={
+                viewingCart
+                  ? "Search your list..."
+                  : 'Search ingredients...  press "/" to focus'
+              }
               className="w-full pl-11 pr-10 py-3 text-base border border-black/15 rounded-lg bg-white text-black placeholder:text-black/25 focus:outline-none focus:border-black/40 transition-colors font-sans"
             />
             {query && (
@@ -355,8 +324,18 @@ export default function IngredientFinder({
                 }}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-black/30 hover:text-black transition-colors cursor-pointer"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             )}
@@ -379,7 +358,11 @@ export default function IngredientFinder({
                     }`}
                   >
                     {store}
-                    <span className={`text-[10px] ${isActive ? "text-white/50" : "text-black/25"}`}>
+                    <span
+                      className={`text-[10px] ${
+                        isActive ? "text-white/50" : "text-black/25"
+                      }`}
+                    >
                       {count}
                     </span>
                   </button>
@@ -401,22 +384,46 @@ export default function IngredientFinder({
                 onClick={() => setViewMode("table")}
                 title="Table view"
                 className={`p-2 transition-colors cursor-pointer ${
-                  viewMode === "table" ? "bg-black text-white" : "text-black/40 hover:text-black"
+                  viewMode === "table"
+                    ? "bg-black text-white"
+                    : "text-black/40 hover:text-black"
                 }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M10 3v18M14 3v18M3 6a3 3 0 013-3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6z" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h18M3 14h18M10 3v18M14 3v18M3 6a3 3 0 013-3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6z"
+                  />
                 </svg>
               </button>
               <button
                 onClick={() => setViewMode("list")}
                 title="List view"
                 className={`p-2 transition-colors cursor-pointer ${
-                  viewMode === "list" ? "bg-black text-white" : "text-black/40 hover:text-black"
+                  viewMode === "list"
+                    ? "bg-black text-white"
+                    : "text-black/40 hover:text-black"
                 }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 6h16M4 12h16M4 18h16"
+                  />
                 </svg>
               </button>
             </div>
@@ -438,8 +445,18 @@ export default function IngredientFinder({
 
         {viewingCart && cart.size === 0 ? (
           <div className="py-20 text-center text-black/30 text-base">
-            <svg className="w-8 h-8 mx-auto mb-3 text-black/15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            <svg
+              className="w-8 h-8 mx-auto mb-3 text-black/15"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
             </svg>
             Your list is empty. Add ingredients from the main view.
           </div>
@@ -448,9 +465,19 @@ export default function IngredientFinder({
             No ingredients found
           </div>
         ) : viewMode === "list" ? (
-          <ListView items={filtered} cart={cart} onToggleCart={toggleCart} onEdit={setEditingItem} />
+          <ListView
+            items={filtered}
+            cart={cart}
+            onToggleCart={toggleCart}
+            onEdit={setEditingItem}
+          />
         ) : (
-          <TableView items={filtered} cart={cart} onToggleCart={toggleCart} onEdit={setEditingItem} />
+          <TableView
+            items={filtered}
+            cart={cart}
+            onToggleCart={toggleCart}
+            onEdit={setEditingItem}
+          />
         )}
       </div>
 
@@ -475,7 +502,13 @@ export default function IngredientFinder({
   );
 }
 
-function AddButton({ inCart, onToggle }: { inCart: boolean; onToggle: () => void }) {
+function AddButton({
+  inCart,
+  onToggle,
+}: {
+  inCart: boolean;
+  onToggle: () => void;
+}) {
   return (
     <button
       onClick={onToggle}
@@ -487,12 +520,32 @@ function AddButton({ inCart, onToggle }: { inCart: boolean; onToggle: () => void
       }`}
     >
       {inCart ? (
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M5 13l4 4L19 7"
+          />
         </svg>
       ) : (
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 4v16m8-8H4"
+          />
         </svg>
       )}
     </button>
@@ -513,7 +566,9 @@ function ListView({ items, cart, onToggleCart, onEdit }: ViewProps) {
         <tr className="border-b border-black/10 text-xs text-black/35 uppercase tracking-wider">
           <th className="text-left py-2.5 pr-4 font-medium w-12">#</th>
           <th className="text-left py-2.5 pr-4 font-medium">Ingredient</th>
-          <th className="text-left py-2.5 font-medium w-52 hidden sm:table-cell">Store</th>
+          <th className="text-left py-2.5 font-medium w-52 hidden sm:table-cell">
+            Store
+          </th>
           <th className="py-2.5 font-medium w-12"></th>
         </tr>
       </thead>
@@ -546,7 +601,10 @@ function ListView({ items, cart, onToggleCart, onEdit }: ViewProps) {
               {item.store}
             </td>
             <td className="py-3 text-center">
-              <AddButton inCart={cart.has(item.id)} onToggle={() => onToggleCart(item.id)} />
+              <AddButton
+                inCart={cart.has(item.id)}
+                onToggle={() => onToggleCart(item.id)}
+              />
             </td>
           </tr>
         ))}
@@ -572,8 +630,7 @@ function TableView({ items, cart, onToggleCart, onEdit }: ViewProps) {
           <th className="border border-black/15 px-3 py-2.5 text-left text-xs font-medium text-black/50 uppercase tracking-wider w-52">
             Store
           </th>
-          <th className="border border-black/15 px-3 py-2.5 text-center text-xs font-medium text-black/50 uppercase tracking-wider w-14">
-          </th>
+          <th className="border border-black/15 px-3 py-2.5 text-center text-xs font-medium text-black/50 uppercase tracking-wider w-14"></th>
         </tr>
       </thead>
       <tbody>
@@ -596,13 +653,16 @@ function TableView({ items, cart, onToggleCart, onEdit }: ViewProps) {
               </button>
             </td>
             <td className="border border-black/10 px-3 py-2.5 text-sm text-black/35 hidden sm:table-cell">
-              {item.name !== item.originalName ? item.originalName : "—"}
+              {item.name !== item.originalName ? item.originalName : "\u2014"}
             </td>
             <td className="border border-black/10 px-3 py-2.5 text-sm text-black/50">
               {item.store}
             </td>
             <td className="border border-black/10 px-3 py-2.5 text-center">
-              <AddButton inCart={cart.has(item.id)} onToggle={() => onToggleCart(item.id)} />
+              <AddButton
+                inCart={cart.has(item.id)}
+                onToggle={() => onToggleCart(item.id)}
+              />
             </td>
           </tr>
         ))}
@@ -632,7 +692,11 @@ function AddItemsModal({
     Array.from({ length: 5 }, () => ({ ...EMPTY_ROW }))
   );
 
-  const updateCell = (rowIndex: number, field: keyof RowData, value: string) => {
+  const updateCell = (
+    rowIndex: number,
+    field: keyof RowData,
+    value: string
+  ) => {
     setRows((prev) => {
       const next = [...prev];
       next[rowIndex] = { ...next[rowIndex], [field]: value };
@@ -669,8 +733,18 @@ function AddItemsModal({
             onClick={onClose}
             className="text-black/30 hover:text-black transition-colors cursor-pointer p-1"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -696,7 +770,10 @@ function AddItemsModal({
             </thead>
             <tbody>
               {rows.map((row, i) => (
-                <tr key={i} className="hover:bg-black/[0.02] transition-colors">
+                <tr
+                  key={i}
+                  className="hover:bg-black/[0.02] transition-colors"
+                >
                   <td className="border border-black/10 px-3 py-0.5 text-xs text-black/25 font-mono text-center">
                     {i + 1}
                   </td>
@@ -704,7 +781,9 @@ function AddItemsModal({
                     <input
                       type="text"
                       value={row.originalName}
-                      onChange={(e) => updateCell(i, "originalName", e.target.value)}
+                      onChange={(e) =>
+                        updateCell(i, "originalName", e.target.value)
+                      }
                       placeholder="e.g. maggi chicken cube"
                       className="w-full px-3 py-2.5 text-sm bg-transparent text-black placeholder:text-black/15 focus:outline-none focus:bg-black/[0.02]"
                     />
@@ -732,7 +811,9 @@ function AddItemsModal({
             </tbody>
           </table>
           <p className="mt-2 text-[11px] text-black/30">
-            Fill in as many rows as you need. Empty rows are ignored. If you leave &quot;Corrected Name&quot; blank, it copies from &quot;Original Name&quot;.
+            Fill in as many rows as you need. Empty rows are ignored. If you
+            leave &quot;Corrected Name&quot; blank, it copies from &quot;Original
+            Name&quot;.
           </p>
         </div>
 
@@ -768,7 +849,10 @@ function EditItemModal({
 }: {
   item: Ingredient;
   onClose: () => void;
-  onSave: (id: number, data: { originalName: string; name: string; store: string }) => void;
+  onSave: (
+    id: number,
+    data: { originalName: string; name: string; store: string }
+  ) => void;
   onDelete: (id: number) => void;
   isPending: boolean;
 }) {
@@ -800,14 +884,26 @@ function EditItemModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-black/10">
           <div>
             <h2 className="text-base font-semibold">Edit Ingredient</h2>
-            <span className="text-xs text-black/30 font-mono">#{item.id}</span>
+            <span className="text-xs text-black/30 font-mono">
+              #{item.id}
+            </span>
           </div>
           <button
             onClick={onClose}
             className="text-black/30 hover:text-black transition-colors cursor-pointer p-1"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -875,8 +971,18 @@ function EditItemModal({
                 title="Delete"
                 className="text-black/25 hover:text-black transition-colors cursor-pointer p-1"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
                 </svg>
               </button>
             )}

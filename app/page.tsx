@@ -1,22 +1,22 @@
-import { readConfig } from "./lib/config";
-import { loadIngredients, extractStores } from "./lib/csv";
+import { getAllIngredients, getStores, getCartItems } from "./actions";
 import IngredientFinder from "./components/IngredientFinder";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  const config = readConfig();
-  let ingredients;
-  let stores;
+export default async function Home() {
+  let ingredients: { id: number; originalName: string; name: string; store: string }[] = [];
+  let stores: string[] = [];
+  let cartItems: number[] = [];
   let loadError = "";
 
   try {
-    ingredients = loadIngredients(config.csvPath);
-    stores = extractStores(ingredients);
+    [ingredients, stores, cartItems] = await Promise.all([
+      getAllIngredients(),
+      getStores(),
+      getCartItems(),
+    ]);
   } catch {
-    ingredients = [];
-    stores = [];
-    loadError = `Could not load file: ${config.csvPath}`;
+    loadError = "Could not connect to database. Check your MONGODB_URI.";
   }
 
   return (
@@ -24,7 +24,7 @@ export default function Home() {
       <IngredientFinder
         ingredients={ingredients}
         stores={stores}
-        currentPath={config.csvPath}
+        initialCart={cartItems}
         loadError={loadError}
       />
     </div>
