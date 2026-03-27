@@ -1,3 +1,4 @@
+// LOC guideline: ~300 lines. OK to exceed when splitting would hurt cohesion.
 "use server";
 
 import { revalidatePath } from "next/cache";
