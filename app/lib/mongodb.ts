@@ -18,11 +18,24 @@ export default async function dbConnect(): Promise<typeof mongoose> {
   }
 
   if (!mongoCache.promise) {
-    mongoCache.promise = mongoose.connect(uri, {
-      bufferCommands: false,
-    });
+    mongoCache.promise = mongoose
+      .connect(uri, {
+        bufferCommands: false,
+        serverSelectionTimeoutMS: 10000,
+      })
+      .catch((err) => {
+        mongoCache.promise = null;
+        throw err;
+      });
   }
 
-  mongoCache.conn = await mongoCache.promise;
+  try {
+    mongoCache.conn = await mongoCache.promise;
+  } catch (err) {
+    mongoCache.promise = null;
+    mongoCache.conn = null;
+    throw err;
+  }
+
   return mongoCache.conn;
 }

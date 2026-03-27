@@ -42,3 +42,6 @@ next-env.d.ts
 
 # app config
 .ingredient-config.json
+
+# Local Netlify folder
+.netlify
