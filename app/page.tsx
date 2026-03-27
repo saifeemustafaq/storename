@@ -1,4 +1,5 @@
-import { getAllIngredients, getStores, getCartItems } from "./actions";
+import { getAllIngredients, getStores, getCartItems, checkDbHealth } from "./actions";
+import type { DbStatus } from "./actions";
 import IngredientFinder from "./components/IngredientFinder";
 
 export const dynamic = "force-dynamic";
@@ -8,12 +9,14 @@ export default async function Home() {
   let stores: string[] = [];
   let cartItems: number[] = [];
   let loadError = "";
+  let dbStatus: DbStatus = { connected: false, dbName: "", ingredientCount: 0, checkedAt: new Date().toISOString() };
 
   try {
-    [ingredients, stores, cartItems] = await Promise.all([
+    [ingredients, stores, cartItems, dbStatus] = await Promise.all([
       getAllIngredients(),
       getStores(),
       getCartItems(),
+      checkDbHealth(),
     ]);
   } catch {
     loadError = "Could not connect to database. Check your MONGODB_URI.";
@@ -26,6 +29,7 @@ export default async function Home() {
         stores={stores}
         initialCart={cartItems}
         loadError={loadError}
+        initialDbStatus={dbStatus}
       />
     </div>
   );

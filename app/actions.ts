@@ -156,3 +156,32 @@ export async function clearCart() {
   );
   return { items: [] as number[] };
 }
+
+// --- Database health check ---
+
+export interface DbStatus {
+  connected: boolean;
+  dbName: string;
+  ingredientCount: number;
+  checkedAt: string;
+}
+
+export async function checkDbHealth(): Promise<DbStatus> {
+  try {
+    const mongoose = await dbConnect();
+    const count = await IngredientModel.countDocuments();
+    return {
+      connected: mongoose.connection.readyState === 1,
+      dbName: mongoose.connection.db?.databaseName ?? "unknown",
+      ingredientCount: count,
+      checkedAt: new Date().toISOString(),
+    };
+  } catch {
+    return {
+      connected: false,
+      dbName: "",
+      ingredientCount: 0,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+}
