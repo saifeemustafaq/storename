@@ -1,3 +1,4 @@
+// LOC guideline: ~300 lines. OK to exceed when splitting would hurt cohesion.
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -141,6 +142,29 @@ export async function toggleCartItem(ingredientId: number) {
     list.items.push(ingredientId);
   } else {
     list.items.splice(idx, 1);
+  }
+
+  await list.save();
+  return { items: list.items as number[] };
+}
+
+export async function addItemsToCart(ingredientIds: number[]) {
+  await dbConnect();
+
+  if (ingredientIds.length === 0) return { items: [] as number[] };
+
+  let list = await CustomListModel.findOne({ name: "default" });
+
+  if (!list) {
+    list = await CustomListModel.create({ name: "default", items: ingredientIds });
+    return { items: list.items as number[] };
+  }
+
+  const existing = new Set(list.items as number[]);
+  for (const id of ingredientIds) {
+    if (!existing.has(id)) {
+      list.items.push(id);
+    }
   }
 
   await list.save();
