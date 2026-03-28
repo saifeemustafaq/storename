@@ -20,6 +20,7 @@ import { ListView, TableView } from "./IngredientListViews";
 import CopyButton from "./CopyButton";
 
 type ViewMode = "list" | "table";
+type CartSort = "added" | "number";
 
 interface Props {
   ingredients: Ingredient[];
@@ -41,6 +42,8 @@ export default function IngredientFinder({
   const [query, setQuery] = useState("");
   const [activeStores, setActiveStores] = useState<Set<string>>(new Set());
   const [cart, setCart] = useState<Set<number>>(() => new Set(initialCart));
+  const [cartOrder, setCartOrder] = useState<number[]>(() => [...initialCart]);
+  const [cartSort, setCartSort] = useState<CartSort>("added");
   const [viewingCart, setViewingCart] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -72,6 +75,7 @@ export default function IngredientFinder({
 
   useEffect(() => {
     setCart(new Set(initialCart));
+    setCartOrder([...initialCart]);
   }, [initialCart]);
 
   useEffect(() => {
@@ -107,12 +111,18 @@ export default function IngredientFinder({
   };
 
   const toggleCart = (id: number) => {
+    const removing = cart.has(id);
     setCart((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    if (removing) {
+      setCartOrder((prev) => prev.filter((x) => x !== id));
+    } else {
+      setCartOrder((prev) => [...prev, id]);
+    }
     startTransition(async () => {
       await toggleCartItem(id);
     });
@@ -120,6 +130,7 @@ export default function IngredientFinder({
 
   const handleClearCart = () => {
     setCart(new Set());
+    setCartOrder([]);
     if (viewingCart) setViewingCart(false);
     startTransition(async () => {
       await clearCart();
@@ -131,6 +142,10 @@ export default function IngredientFinder({
       const next = new Set(prev);
       for (const id of ids) next.add(id);
       return next;
+    });
+    setCartOrder((prev) => {
+      const existing = new Set(prev);
+      return [...prev, ...ids.filter((id) => !existing.has(id))];
     });
     startTransition(async () => {
       await addItemsToCart(ids);
@@ -149,9 +164,15 @@ export default function IngredientFinder({
     setActiveStores(new Set());
   };
 
-  const sourceList = viewingCart
-    ? ingredients.filter((item) => cart.has(item.id))
-    : ingredients;
+  const sourceList = useMemo(() => {
+    if (!viewingCart) return ingredients;
+    const cartItems = ingredients.filter((item) => cart.has(item.id));
+    if (cartSort === "number") return cartItems;
+    const orderIndex = new Map(cartOrder.map((id, i) => [id, i]));
+    return [...cartItems].sort(
+      (a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0)
+    );
+  }, [viewingCart, ingredients, cart, cartSort, cartOrder]);
 
   const visibleStores = useMemo(() => {
     if (!viewingCart) return stores;
@@ -347,6 +368,32 @@ export default function IngredientFinder({
             </button>
             {cart.size > 0 && (
               <div className="flex items-center gap-2 ml-auto">
+                {viewingCart && (
+                  <div className="inline-flex items-center border border-black/15 rounded-md overflow-hidden">
+                    <button
+                      onClick={() => setCartSort("added")}
+                      title="Sort by order added"
+                      className={`px-2 py-1 text-[11px] transition-colors cursor-pointer ${
+                        cartSort === "added"
+                          ? "bg-black text-white"
+                          : "text-black/40 hover:text-black"
+                      }`}
+                    >
+                      Recent
+                    </button>
+                    <button
+                      onClick={() => setCartSort("number")}
+                      title="Sort by ingredient number"
+                      className={`px-2 py-1 text-[11px] transition-colors cursor-pointer ${
+                        cartSort === "number"
+                          ? "bg-black text-white"
+                          : "text-black/40 hover:text-black"
+                      }`}
+                    >
+                      #
+                    </button>
+                  </div>
+                )}
                 {viewingCart && <CopyButton items={filtered} />}
                 <button
                   onClick={handleClearCart}
